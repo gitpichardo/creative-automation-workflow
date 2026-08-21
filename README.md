@@ -176,6 +176,8 @@ If `api`/`campaign-workflow` were ever pointed at the external string (e.g. whil
 | `AWAIT_TRANSFORMATION_TIMEOUT_MS` | Per-variant poll budget, default `120000` | Blueprint |
 | `PUBLIC_BASE_URL` | This service's own public URL (for printing the webhook URL to register) | Blueprint (self-reference via `RENDER_EXTERNAL_URL`) |
 
+> **Copying `IMAGEKIT_PUBLIC_KEY`?** Copy it fresh from the dashboard rather than reusing an old value. A single-character case typo (e.g. in a trailing letter) is invisible at a glance and won't break anything *this* service currently does -- `imagekitPublicKey` in `src/lib/env.ts` isn't consumed by any code path yet -- but it will silently break client-side/signature-based uploads elsewhere with a generic `403 "Your account cannot be authenticated"`. This actually happened in this workspace; see [`imagekit-astro-upload`](../imagekit-astro-upload/README.md#verification) for the full diagnostic writeup.
+
 #### `campaign-workflow` service
 
 Set all of these yourself in the Dashboard -- the Blueprint doesn't manage this service (see [why three services](#why-three-services)):
