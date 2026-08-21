@@ -142,6 +142,17 @@ Back on the `api` service, set:
 
 Redeploy `api` (or it'll pick these up on next restart). Then register the webhook URL printed in `api`'s boot log (`<PUBLIC_BASE_URL>/webhooks/imagekit`) in the [ImageKit dashboard's webhook settings](https://imagekit.io/dashboard/developer/webhooks), copy the `whsec_...` signing secret it gives you into `IMAGEKIT_WEBHOOK_SECRET` on `api`, and redeploy once more.
 
+### Keeping both services up to date after the first deploy
+
+If you provisioned `api` through the Dashboard's Blueprint/"New Web Service" flow and connected your GitHub account via its OAuth prompt, pushes to your linked branch auto-deploy natively -- no further setup needed.
+
+If instead you (or an automation) provisioned either service via the [Render API](https://api-docs.render.com) or [CLI](https://render.com/docs/cli) using a **plain repository URL** rather than that OAuth flow -- which is how this project's own `api` and `campaign-workflow` services were actually stood up, since Workflow services in particular can't be created any other way non-interactively (`render workflows create --repo <url> ...`) -- pushes to `main` will *not* auto-deploy. This isn't a misconfiguration to fix on either service; per [Render's docs](https://render.com/docs/deploys#automatic-deploys), "auto-deploys require a connected GitHub, GitLab, or Bitbucket account. Services that use... a public Git repository URL must be deployed manually."
+
+The fix Render documents for exactly this case is CI-triggered deploys via the [Render CLI](https://render.com/docs/cli#example-github-actions) or a [Deploy Hook](https://render.com/docs/deploy-hooks) -- this repo ships [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) using the CLI approach: on every push to `main`, it runs the test suite, then (only if that passes) redeploys `creative-automation-api` and releases a new `creative-automation-workflow` version, authenticated with `RENDER_API_KEY` (no OAuth needed). To use it:
+
+1. Add a `RENDER_API_KEY` repo secret (Settings > Secrets and variables > Actions > New repository secret) -- the same key already in `.env.local`.
+2. Update `API_SERVICE_ID` / `WORKFLOW_ID` in the workflow file if your service ids differ (find them with `render services list -o json` / `render workflows list -o json`).
+
 ### Environment variables
 
 #### `api` service
