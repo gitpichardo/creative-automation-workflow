@@ -1,4 +1,4 @@
-import { createClient, type RedisClientType } from 'redis';
+import { createClient, WatchError, type RedisClientType } from 'redis';
 import { createHash } from 'node:crypto';
 import { env } from './env.js';
 import type { AwaitTransformationResult } from './await-transformation.js';
@@ -171,11 +171,6 @@ export async function getCampaign(id: string): Promise<CampaignState | undefined
   return JSON.parse(raw) as CampaignState;
 }
 
-/**
- * Read-modify-write helper for the handful of single-writer updates this
- * project needs (the workflow task is the only writer for a given campaign
- * id, so a full optimistic-locking scheme would be overkill here).
- */
 const RECENT_CAMPAIGNS_KEY = 'campaigns:recent';
 const RECENT_CAMPAIGNS_LIMIT = 50;
 
@@ -191,16 +186,75 @@ export async function listRecentCampaignIds(): Promise<string[]> {
   return redis.lRange(RECENT_CAMPAIGNS_KEY, 0, RECENT_CAMPAIGNS_LIMIT - 1);
 }
 
+const UPDATE_MAX_ATTEMPTS = 10;
+
+/**
+ * Read-modify-write helper for campaign state. `runCampaign` fans a
+ * campaign's (asset, variant) pairs out into *parallel* `renderVariant`
+ * subtask runs (see `campaign.ts`), and every one of them calls this to
+ * record its own progress into the *same* `campaign:<id>` key -- so, unlike
+ * the single-writer assumption this originally shipped with, concurrent
+ * writers are the common case, not an edge case.
+ *
+ * A plain GET-then-SET is a lost-update race here: if run A's GET happens
+ * before run B's SET, and run A's SET happens after run B's SET, A's write
+ * clobbers B's with a stale copy of the variants array that doesn't include
+ * B's update. This was caught by an actual live campaign run (two real
+ * `renderVariant` runs against real Key Value), not a review: one variant's
+ * ImageKit transformation genuinely succeeded (confirmed by fetching the
+ * resulting URL directly -- HTTP 200, real transformed bytes) while its
+ * recorded status in Key Value stayed stuck at the interim `"rendering"`
+ * value, because the *other* concurrent variant's write raced it and won.
+ *
+ * Fixed with optimistic locking: WATCH the key, re-read it, apply `patch`,
+ * then MULTI/SET/EXEC -- Redis aborts the transaction if the watched key
+ * changed in between. node-redis v6's `.exec()` surfaces that abort by
+ * *throwing* a `WatchError` (confirmed against a real conflict in this
+ * exact codepath -- v4's docs describe EXEC returning `null` instead, which
+ * is no longer what actually happens), so this catches `WatchError`
+ * specifically and retries with a fresh read; any other error propagates.
+ * WATCH/MULTI/EXEC state is tracked per connection, so this runs on a
+ * short-lived `duplicate()`d connection rather than the shared singleton
+ * from `getClient()` -- otherwise two concurrent callers' WATCH/MULTI pairs
+ * would interleave on the same socket and corrupt each other's transaction,
+ * defeating the whole point.
+ */
 export async function updateCampaign(
   id: string,
   patch: (current: CampaignState) => CampaignState,
 ): Promise<CampaignState> {
-  const current = await getCampaign(id);
-  if (!current) {
-    throw new Error(`No campaign state found for id "${id}".`);
+  const base = await getClient();
+  const key = campaignKey(id);
+  const isolated = base.duplicate();
+  await isolated.connect();
+  try {
+    for (let attempt = 0; attempt < UPDATE_MAX_ATTEMPTS; attempt++) {
+      await isolated.watch(key);
+      const raw = await isolated.get(key);
+      if (!raw) {
+        await isolated.unwatch();
+        throw new Error(`No campaign state found for id "${id}".`);
+      }
+      const current = JSON.parse(raw) as CampaignState;
+      const next = patch(current);
+      next.updatedAt = new Date().toISOString();
+
+      try {
+        await isolated
+          .multi()
+          .set(key, JSON.stringify(next), { EX: CAMPAIGN_TTL_SECONDS })
+          .exec();
+        return next;
+      } catch (err) {
+        if (!(err instanceof WatchError)) throw err;
+        // Another writer touched `key` after our WATCH -- back off briefly
+        // (jittered, to avoid every retrier retrying in lockstep) and retry
+        // with a fresh read.
+        await new Promise((resolve) => setTimeout(resolve, 10 + Math.floor(Math.random() * 40)));
+      }
+    }
+    throw new Error(`Failed to update campaign "${id}" after ${UPDATE_MAX_ATTEMPTS} attempts due to concurrent writes.`);
+  } finally {
+    await isolated.quit();
   }
-  const next = patch(current);
-  next.updatedAt = new Date().toISOString();
-  await saveCampaign(next);
-  return next;
 }
