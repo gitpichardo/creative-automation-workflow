@@ -1,0 +1,62 @@
+name: Deploy to Render
+
+# Both Render services in this repo (`creative-automation-api`,
+# `creative-automation-workflow`) were created via the Render API/CLI with a
+# plain repo URL rather than through Render's GitHub App OAuth flow -- see
+# README, "Deploying the workflow service". Render's *native* auto-deploy
+# (a GitHub webhook that fires on push) only exists for services linked
+# through that OAuth flow -- "Auto-deploys require a connected GitHub,
+# GitLab, or Bitbucket account. Services that use a public Git repository
+# URL must be deployed manually."
+# (https://render.com/docs/deploys#automatic-deploys).
+#
+# This workflow is Render's own documented replacement for that case: run
+# the test suite, then use the Render CLI (authenticated via RENDER_API_KEY,
+# no OAuth needed) to trigger a real deploy of both services on every push to
+# main -- functionally equivalent to native auto-deploy for a plain repo URL.
+# See https://render.com/docs/cli#example-github-actions and
+# https://render.com/docs/deploy-hooks.
+#
+# Required repo secret (Settings -> Secrets and variables -> Actions):
+#   RENDER_API_KEY -- the same key already in .env.local locally.
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:test
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_CLI_VERSION: '2.24.0'
+      # api web service and workflow service ids, from `render services list` /
+      # `render workflows list` -- see README for how these were provisioned.
+      API_SERVICE_ID: srv-da3q4ujncjis73a8qtsg
+      WORKFLOW_ID: wfl-da3pqhbbc2fs73ak2h10
+    steps:
+      - name: Install Render CLI
+        run: |
+          curl -sL "https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/cli_${RENDER_CLI_VERSION}_linux_amd64.zip" -o render-cli.zip
+          unzip -o render-cli.zip -d render-cli
+          sudo mv "render-cli/cli_v${RENDER_CLI_VERSION}" /usr/local/bin/render
+          render --version
+
+      - name: Deploy creative-automation-api
+        run: render deploys create "$API_SERVICE_ID" --output json --confirm --wait
+
+      - name: Release creative-automation-workflow
+        run: render workflows versions release "$WORKFLOW_ID" --commit "${{ github.sha }}" --output json --confirm --wait
