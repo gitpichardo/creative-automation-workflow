@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>imagekit-render-creative-automation</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Creative automation demo</h1>
+      <p class="lede">
+        Submits a campaign brief to <code>POST /campaigns</code>, which triggers a Render Workflows run that fans
+        out one ImageKit transformation per (asset &times; variant) pair in parallel, then polls
+        <code>GET /campaigns/:id</code> for progress.
+      </p>
+    </header>
+
+    <main>
+      <section id="brief-section">
+        <h2>1. Submit a campaign brief</h2>
+        <form id="brief-form">
+          <label>
+            Campaign name
+            <input name="name" required placeholder="Summer 2026 launch" />
+          </label>
+          <label>
+            Source folder (ImageKit DAM path)
+            <input name="folder" required placeholder="/campaigns/summer-2026" />
+          </label>
+          <label>
+            Asset search query <span class="optional">(optional, Lucene-like)</span>
+            <input name="assetSearchQuery" placeholder='tags IN ["approved"]' />
+          </label>
+          <label>
+            Variants (JSON array of <code>{ name, transformation }</code>)
+            <textarea name="variants" rows="8" required></textarea>
+          </label>
+          <div class="preset-buttons">
+            <span>Presets:</span>
+            <button type="button" data-preset="resize">Basic resizes</button>
+            <button type="button" data-preset="ai">AI background + upscale</button>
+          </div>
+          <button type="submit" id="submit-button">Start campaign</button>
+        </form>
+        <p id="brief-error" class="error" hidden></p>
+      </section>
+
+      <section id="progress-section" hidden>
+        <h2>2. Progress</h2>
+        <p>
+          Campaign <code id="campaign-id"></code> --
+          <a id="manifest-link" href="#" hidden>download manifest.csv</a>
+        </p>
+        <p id="campaign-status"></p>
+        <table id="variant-table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Variant</th>
+              <th>Status</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="renders-section" hidden>
+        <h2>3. Finished renders</h2>
+        <div id="renders-grid"></div>
+      </section>
+
+      <section id="history-section">
+        <h2>Recent campaigns</h2>
+        <ul id="history-list"></ul>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
