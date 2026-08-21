@@ -1,0 +1,66 @@
+# Render Blueprint for imagekit-render-creative-automation.
+#
+# This Blueprint provisions the `api` web service and the `state` Key Value
+# instance. It deliberately does NOT provision the `campaign-workflow`
+# service: as of this writing, Render Blueprints do not yet support creating
+# or managing Workflow services ("Blueprints do not yet support creating or
+# managing workflows" -- https://render.com/docs/workflows). This matches the
+# same split used in Render's own example,
+# https://github.com/render-examples/blog-thumbnails-workflows, where the
+# workflow service is deployed separately through the Dashboard/CLI.
+#
+# See README.md, "Deploying the workflow service" for the exact manual steps,
+# and "Architecture" for why the three services are split this way.
+services:
+  - type: web
+    name: creative-automation-api
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:api
+    envVars:
+      - key: IMAGEKIT_PRIVATE_KEY
+        sync: false
+      - key: IMAGEKIT_PUBLIC_KEY
+        sync: false
+      - key: IMAGEKIT_URL_ENDPOINT
+        sync: false
+      - key: IMAGEKIT_WEBHOOK_SECRET
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: creative-automation-state
+          property: connectionString
+      # Created manually after the workflow service exists -- see README.
+      - key: RENDER_API_KEY
+        sync: false
+      - key: WORKFLOW_SLUG
+        sync: false
+      - key: MAX_ASSETS_PER_CAMPAIGN
+        value: "200"
+      - key: AWAIT_TRANSFORMATION_TIMEOUT_MS
+        value: "120000"
+      # Render already sets RENDER_EXTERNAL_URL to this service's own public
+      # URL automatically (https://render.com/docs/environment-variables) --
+      # this just duplicates it under the name src/api/env.ts reads. See
+      # blueprint-spec, "Referencing service properties" for this
+      # self-reference pattern.
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: creative-automation-api
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # Render Key Value (Redis/Valkey-compatible) instance backing `src/lib/state.ts`:
+  # campaign/job progress, the webhook <-> pending-wait correlation map, and
+  # webhook event-id idempotency records. `ipAllowList: []` restricts it to
+  # internal-only access from other services in this workspace -- see
+  # https://render.com/docs/blueprint-spec, "Render Key Value".
+  - type: keyvalue
+    name: creative-automation-state
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: noeviction

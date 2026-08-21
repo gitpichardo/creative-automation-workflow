@@ -1,0 +1,38 @@
+{
+  "name": "imagekit-render-creative-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic creative automation on Render Workflows: fan out ImageKit transformations across a campaign's assets in parallel, correctly handling ImageKit's long-running async transformation behavior.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run copy:ui",
+    "copy:ui": "mkdir -p dist/ui && cp -R src/ui/. dist/ui/",
+    "dev:api": "tsx watch src/api/server.ts",
+    "dev:workflow": "tsx src/workflow/campaign.ts",
+    "start:api": "node dist/api/server.js",
+    "start:workflow": "node dist/workflow/campaign.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@imagekit/nodejs": "^7.11.0",
+    "@renderinc/sdk": "^0.7.0",
+    "express": "^5.2.1",
+    "redis": "^6.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.10.5",
+    "@types/supertest": "^7.2.1",
+    "dotenv": "^16.4.7",
+    "standardwebhooks": "^1.0.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
