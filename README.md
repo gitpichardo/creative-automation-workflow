@@ -153,6 +153,15 @@ The fix Render documents for exactly this case is CI-triggered deploys via the [
 1. Add a `RENDER_API_KEY` repo secret (Settings > Secrets and variables > Actions > New repository secret) -- the same key already in `.env.local`.
 2. Update `API_SERVICE_ID` / `WORKFLOW_ID` in the workflow file if your service ids differ (find them with `render services list -o json` / `render workflows list -o json`).
 
+### `REDIS_URL`: internal vs. external connection string
+
+`state`'s [connection info](https://render.com/docs/key-value#connecting-to-your-key-value-instance) gives you two connection strings. Use whichever matches where the code is actually running:
+
+- **`api` and `campaign-workflow`, once deployed** -- use the *internal* connection string (`redis://<id>:6379`, no TLS, no credentials -- Render's private network handles isolation). This is what both services use in production. It only resolves from inside the same Render region/workspace, and it means `state`'s public IP allowlist doesn't need either service's egress IPs -- ideally it's `[]` (matching `render.yaml`) or scoped to just the IPs you need for local debugging.
+- **Local development against a real (non-Docker) `state` instance** -- use the *external* connection string (`rediss://...@<region>-keyvalue.render.com:6379`, TLS, credentials required), and add your own IP to `state`'s allowlist first (Dashboard, or `PATCH /v1/key-value/:id` with `ipAllowList`).
+
+If `api`/`campaign-workflow` were ever pointed at the external string (e.g. while bootstrapping the Key Value instance before this section was written), switching them to internal requires updating their `REDIS_URL` env var *and* triggering a redeploy/version release -- an env var write alone doesn't restart the running process.
+
 ### Environment variables
 
 #### `api` service
