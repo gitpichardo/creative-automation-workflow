@@ -17,6 +17,9 @@ services:
     runtime: node
     plan: starter
     region: oregon
+    # Off so Deploy-to-Render forks don't redeploy every time this template
+    # repo gets a push (https://render.com/docs/deploy-to-render).
+    autoDeployTrigger: off
     buildCommand: npm ci && npm run build
     startCommand: npm run start:api
     envVars:
