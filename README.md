@@ -4,24 +4,20 @@ Agentic creative automation, built on [Render Workflows](https://render.com/docs
 
 The part that makes this non-trivial: ImageKit transformations are **not** synchronous. A computationally expensive transformation (an AI edit, a video re-encode) can take longer than a single HTTP request wants to block for, so ImageKit's real behavior is an async, poll-or-webhook protocol -- not "call an API, get a URL back, done." This project exists to get that protocol right in a system that's actually fanning out hundreds of these at once, which a single Cloud Function or one long `for` loop handles badly (no per-item retry, no fan-out concurrency control, a crash 3/4 of the way through takes the whole batch with it).
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/gitpichardo/creative-automation-workflow)
+
+> **What the button deploys:** `api` + Key Value (`state`) from [`render.yaml`](render.yaml). The `campaign-workflow` service is **not** in the Blueprint — [Render Blueprints do not yet manage Workflow services](https://render.com/docs/workflows). After the button finishes, follow [Deploying the workflow service](#2-deploy-the-workflow-service-dashboard) and [Connect `api` to the workflow](#3-connect-api-to-the-workflow). You will need an [ImageKit account](#imagekit-setup) before the campaign paths work.
+
 ## Architecture
 
-```
-┌──────────────┐      ┌──────────────────┐      ┌─────────────────────────────┐
-│  Demo UI      │─────▶│  api (Express)   │─────▶│  Render Workflows            │
-│  (static)     │◀─────│                  │◀─────│                              │
-└──────────────┘      │  POST /campaigns │      │  runCampaign                 │
-                       │  GET  /campaigns │      │   ├─ resolveAssets           │
-      ImageKit ───────▶│  /webhooks/      │      │   ├─ renderVariant (xN, ‖)   │
-      (webhooks)       │    imagekit      │      │   └─ buildManifest          │
-                       └────────┬─────────┘      └───────────────┬─────────────┘
-                                │                                  │
-                                ▼                                  ▼
-                       ┌──────────────────────────────────────────────┐
-                       │  state (Render Key Value / Redis)             │
-                       │  campaign progress, webhook <-> wait          │
-                       │  correlation, webhook event idempotency       │
-                       └──────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  User[Browser] --> Api["api (Express + Demo UI)"]
+  ImageKit[ImageKit webhooks] --> Api
+  Api --> Workflow[campaign-workflow]
+  Workflow --> Api
+  Api --> State["state (Key Value)"]
+  Workflow --> State
 ```
 
 1. The **demo UI** (a static page served by the `api` service) submits a campaign brief -- a DAM folder, an optional [search query](https://imagekit.io/docs/api-reference/media-api/list-and-search-files#search-query), and a list of variants (name + ImageKit transformation chain).
@@ -76,8 +72,21 @@ This is the part of the spec that most needed verifying against the real API rat
 
 - Node.js 20+ (or use the same portable-Node approach as the rest of this repo's siblings if you don't want a system install)
 - A Redis or [Valkey](https://valkey.io/) instance for local `state` (`docker run -p 6379:6379 valkey/valkey`, or point `REDIS_URL` at any instance you already have)
-- An [ImageKit account](https://imagekit.io/registration/) with API keys and a URL endpoint
+- An [ImageKit account](#imagekit-setup) with API keys and a URL endpoint
 - A [Render account](https://dashboard.render.com) + [API key](https://render.com/docs/api#1-create-an-api-key) -- only needed once you actually want to trigger real workflow runs; everything else (server, routes, webhook handling, unit tests) runs without one
+
+### ImageKit setup
+
+You need ImageKit credentials to exercise library search, transformations, and (optionally) video webhooks. Free accounts work.
+
+1. Create an account at [imagekit.io/registration](https://imagekit.io/registration/).
+2. Open the [API keys dashboard](https://imagekit.io/dashboard/developer/api-keys) and copy:
+   - **Public key** → `IMAGEKIT_PUBLIC_KEY`
+   - **Private key** → `IMAGEKIT_PRIVATE_KEY` (starts with `private_`; never expose this client-side)
+   - **URL endpoint** → `IMAGEKIT_URL_ENDPOINT` (e.g. `https://ik.imagekit.io/<your_id>`)
+3. Optional, for the video webhook path: create a webhook in the [webhooks dashboard](https://imagekit.io/dashboard/developer/webhooks) pointing at your `api` service's `/webhooks/imagekit` URL once deployed, and copy the signing secret → `IMAGEKIT_WEBHOOK_SECRET`.
+
+On Render, fill those into the Blueprint's `sync: false` env vars when prompted (or set them on the service after deploy). Locally, put them in `.env` (see below).
 
 ### Setup
 
@@ -110,10 +119,9 @@ Do them in this order -- the workflow service needs to exist before `api` can ca
 
 ### 1. Deploy `api` + `state` (Blueprint)
 
-1. Push this repo to GitHub/GitLab/Bitbucket.
-2. In the [Render Dashboard](https://dashboard.render.com), create a new Blueprint from your repo (or use the Deploy-to-Render flow if you've set one up).
-3. Fill in the `sync: false` env vars the Blueprint leaves blank: `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_URL_ENDPOINT`, `IMAGEKIT_WEBHOOK_SECRET` (optional). `REDIS_URL` is wired automatically from the `state` Key Value instance the Blueprint also creates.
-4. Leave `RENDER_API_KEY` and `WORKFLOW_SLUG` blank for now -- both depend on step 2.
+1. Click the [Deploy to Render](https://render.com/deploy?repo=https://github.com/gitpichardo/creative-automation-workflow) button above, **or** in the [Render Dashboard](https://dashboard.render.com) create a new Blueprint from this repo.
+2. Fill in the `sync: false` env vars the Blueprint leaves blank: `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_URL_ENDPOINT`, `IMAGEKIT_WEBHOOK_SECRET` (optional) — see [ImageKit setup](#imagekit-setup). `REDIS_URL` is wired automatically from the `state` Key Value instance the Blueprint also creates.
+3. Leave `RENDER_API_KEY` and `WORKFLOW_SLUG` blank for now -- both depend on step 2.
 
 ### 2. Deploy the workflow service (Dashboard)
 
