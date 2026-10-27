@@ -8,6 +8,14 @@ import type { CampaignBrief } from './types.js';
 export { resolveAssets, renderVariant, buildManifest };
 
 /**
+ * Hard cap on how many `renderVariant` subtask runs may be in flight at once.
+ * Matches the n8n batch-transform workflow's `batchSize: 5`. Not env-tunable
+ * on purpose -- keeps a single campaign from flooding ImageKit even if
+ * `MAX_ASSETS_PER_CAMPAIGN` is high.
+ */
+const RENDER_VARIANT_CONCURRENCY = 5;
+
+/**
  * The workflow service's entry point (`npm run start:workflow` /
  * `npm run dev:workflow`). Deployed as a Render *Workflow* service
  * (https://render.com/docs/workflows) -- a distinct service type from the
@@ -24,11 +32,13 @@ export { resolveAssets, renderVariant, buildManifest };
  *    each becomes its own tracked, independently-retried Workflows task
  *    run, which is the actual payoff of building this on Workflows instead
  *    of a single long-lived process: a campaign with 40 assets x 4 variants
- *    is 160 independent, parallel, retryable units of work, not one giant
- *    loop that dies as a whole on the 137th item.
+ *    is 160 independent, retryable units of work (at most
+ *    `RENDER_VARIANT_CONCURRENCY` in flight at once), not one giant loop
+ *    that dies as a whole on the 137th item.
  * 3. Builds the final manifest once every subtask run has settled
- *    (successfully or not -- `Promise.allSettled`, not `Promise.all`, so
- *    one failed variant doesn't take down the whole campaign's manifest).
+ *    (successfully or not -- `Promise.allSettled` per batch, not
+ *    `Promise.all`, so one failed variant doesn't take down the whole
+ *    campaign's manifest).
  */
 export const runCampaign = task(
   { name: 'runCampaign', timeoutSeconds: 3600 },
@@ -51,7 +61,15 @@ export const runCampaign = task(
 
     const jobs = assets.flatMap((asset) => brief.variants.map((variant) => ({ campaignId, asset, variant })));
 
-    const settled = await Promise.allSettled(jobs.map((job) => renderVariant(job)));
+    // Chunked fan-out: at most RENDER_VARIANT_CONCURRENCY in flight. Chunks
+    // (not a sliding pool) match the n8n Split In Batches pattern and keep
+    // the rate limit simple and non-configurable.
+    const settled: PromiseSettledResult<Awaited<ReturnType<typeof renderVariant>>>[] = [];
+    for (let i = 0; i < jobs.length; i += RENDER_VARIANT_CONCURRENCY) {
+      const chunk = jobs.slice(i, i + RENDER_VARIANT_CONCURRENCY);
+      const chunkSettled = await Promise.allSettled(chunk.map((job) => renderVariant(job)));
+      settled.push(...chunkSettled);
+    }
 
     const failedSubtaskRuns = settled.filter((r) => r.status === 'rejected').length;
     if (failedSubtaskRuns > 0) {
