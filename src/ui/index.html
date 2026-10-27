@@ -3,79 +3,109 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>imagekit-render-creative-automation</title>
+    <title>Creative Automation | ImageKit on Render</title>
+    <meta name="description" content="Fan out ImageKit transformations across a campaign with Render Workflows." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <h1>Creative automation demo</h1>
-      <p class="lede">
-        Submits a campaign brief to <code>POST /campaigns</code>, which triggers a Render Workflows run that fans
-        out one ImageKit transformation per (asset &times; variant) pair in parallel, then polls
-        <code>GET /campaigns/:id</code> for progress.
-      </p>
-    </header>
+    <div class="shell">
+      <header class="site-header">
+        <div class="brand">
+          <img src="/favicon.svg" alt="" width="28" height="28" />
+          <span>Creative Automation</span>
+        </div>
+        <span class="tagline">ImageKit transformations on Render Workflows</span>
+      </header>
 
-    <main>
-      <section id="brief-section">
-        <h2>1. Submit a campaign brief</h2>
-        <form id="brief-form">
-          <label>
-            Campaign name
-            <input name="name" required placeholder="Summer 2026 launch" />
-          </label>
-          <label>
-            Source folder (ImageKit DAM path)
-            <input name="folder" required placeholder="/campaigns/summer-2026" />
-          </label>
-          <label>
-            Asset search query <span class="optional">(optional, Lucene-like)</span>
-            <input name="assetSearchQuery" placeholder='tags IN ["approved"]' />
-          </label>
-          <label>
-            Variants (JSON array of <code>{ name, transformation }</code>)
-            <textarea name="variants" rows="8" required></textarea>
-          </label>
-          <div class="preset-buttons">
-            <span>Presets:</span>
-            <button type="button" data-preset="resize">Basic resizes</button>
-            <button type="button" data-preset="ai">AI background + upscale</button>
-          </div>
-          <button type="submit" id="submit-button">Start campaign</button>
-        </form>
-        <p id="brief-error" class="error" hidden></p>
-      </section>
-
-      <section id="progress-section" hidden>
-        <h2>2. Progress</h2>
+      <section class="hero">
+        <h1>Run a campaign. Skip the boilerplate.</h1>
         <p>
-          Campaign <code id="campaign-id"></code> --
-          <a id="manifest-link" href="#" hidden>download manifest.csv</a>
+          Submit a folder and a list of variants. Each asset and variant pair becomes its own retryable Workflows run,
+          at most five at a time.
         </p>
-        <p id="campaign-status"></p>
-        <table id="variant-table">
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Variant</th>
-              <th>Status</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
       </section>
 
-      <section id="renders-section" hidden>
-        <h2>3. Finished renders</h2>
-        <div id="renders-grid"></div>
-      </section>
+      <main>
+        <section class="card" id="brief-section">
+          <div class="card-head">
+            <span class="step">1</span>
+            <h2>Campaign brief</h2>
+          </div>
+          <form id="brief-form" novalidate>
+            <div class="field">
+              <label for="name">Campaign name</label>
+              <input id="name" name="name" required value="Demo campaign" />
+            </div>
+            <div class="field">
+              <label for="folder">Source folder</label>
+              <input id="folder" name="folder" required value="/campaigns/demo" />
+              <p class="help">ImageKit media library path that holds your source assets.</p>
+            </div>
+            <div class="field">
+              <label for="assetSearchQuery">Asset filter <span class="optional">Optional</span></label>
+              <input id="assetSearchQuery" name="assetSearchQuery" placeholder='tags IN ["approved"]' />
+              <p class="help">A Lucene-style search query applied inside the folder. Leave empty to use every file.</p>
+            </div>
+            <div class="field">
+              <div class="label-row">
+                <label for="variants">Variants</label>
+                <div class="presets">
+                  <button type="button" class="chip" data-preset="resize">Basic resizes</button>
+                  <button type="button" class="chip" data-preset="ai">AI background + upscale</button>
+                </div>
+              </div>
+              <textarea id="variants" name="variants" rows="10" spellcheck="false" required></textarea>
+              <p class="help">JSON array of objects with a <b>name</b> and a <b>transformation</b> chain.</p>
+              <p id="variants-error" class="field-error" hidden></p>
+            </div>
+            <div class="actions">
+              <button type="submit" id="submit-button" class="primary">Start campaign</button>
+            </div>
+            <p id="brief-error" class="form-error" hidden></p>
+          </form>
+        </section>
 
-      <section id="history-section">
-        <h2>Recent campaigns</h2>
-        <ul id="history-list"></ul>
-      </section>
-    </main>
+        <section class="card" id="progress-section" hidden>
+          <div class="card-head">
+            <span class="step">2</span>
+            <h2>Progress</h2>
+            <a id="manifest-link" class="link-button" href="#" hidden>Download manifest.csv</a>
+          </div>
+          <p class="meta">Campaign <code id="campaign-id"></code></p>
+          <p id="campaign-status" class="summary"></p>
+          <div class="table-wrap">
+            <table id="variant-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Variant</th>
+                  <th>Status</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card" id="renders-section" hidden>
+          <div class="card-head">
+            <span class="step">3</span>
+            <h2>Finished renders</h2>
+          </div>
+          <div id="renders-grid"></div>
+        </section>
+
+        <section class="card" id="history-section">
+          <div class="card-head">
+            <h2>Recent campaigns</h2>
+          </div>
+          <ul id="history-list"></ul>
+          <p id="history-empty" class="empty">No campaigns yet.</p>
+        </section>
+      </main>
+    </div>
 
     <script src="/app.js"></script>
   </body>
