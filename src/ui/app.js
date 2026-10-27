@@ -12,6 +12,8 @@ const PRESETS = {
 
 const briefForm = document.getElementById('brief-form');
 const briefError = document.getElementById('brief-error');
+const variantsError = document.getElementById('variants-error');
+const historyEmpty = document.getElementById('history-empty');
 const submitButton = document.getElementById('submit-button');
 const progressSection = document.getElementById('progress-section');
 const rendersSection = document.getElementById('renders-section');
@@ -22,11 +24,21 @@ const variantTableBody = document.querySelector('#variant-table tbody');
 const rendersGrid = document.getElementById('renders-grid');
 const historyList = document.getElementById('history-list');
 
+function applyPreset(key) {
+  briefForm.variants.value = JSON.stringify(PRESETS[key], null, 2);
+  variantsError.hidden = true;
+}
+
 document.querySelectorAll('[data-preset]').forEach((button) => {
-  button.addEventListener('click', () => {
-    briefForm.variants.value = JSON.stringify(PRESETS[button.dataset.preset], null, 2);
-  });
+  button.addEventListener('click', () => applyPreset(button.dataset.preset));
 });
+
+// Start with a working example so the first submit never hits an empty field.
+applyPreset('resize');
+
+function pill(status) {
+  return `<span class="pill pill-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
+}
 
 let pollHandle;
 
@@ -38,8 +50,8 @@ function renderVariants(campaign) {
     row.innerHTML = `
       <td>${escapeHtml(v.fileName)}</td>
       <td>${escapeHtml(v.variant)}</td>
-      <td class="status-${v.status}">${v.status}</td>
-      <td>${escapeHtml(detail ?? '')}</td>
+      <td>${pill(v.status)}</td>
+      <td class="detail" title="${escapeHtml(detail ?? '')}">${escapeHtml(detail ?? '')}</td>
     `;
     variantTableBody.appendChild(row);
   }
@@ -71,7 +83,8 @@ async function pollCampaign(id) {
   if (!res.ok) return;
   const campaign = await res.json();
 
-  campaignStatusEl.textContent = `Status: ${campaign.status} (${campaign.variants.filter((v) => v.status === 'ready').length}/${campaign.variants.length || '?'} ready)`;
+  const readyCount = campaign.variants.filter((v) => v.status === 'ready').length;
+  campaignStatusEl.innerHTML = `${pill(campaign.status)} ${readyCount}/${campaign.variants.length || '?'} renders ready`;
   renderVariants(campaign);
 
   if (campaign.manifestCsv !== undefined || campaign.status !== 'running') {
@@ -97,17 +110,19 @@ async function loadHistory() {
   if (!res.ok) return;
   const { campaigns } = await res.json();
   historyList.innerHTML = '';
+  historyEmpty.hidden = campaigns.length > 0;
   for (const c of campaigns) {
     const li = document.createElement('li');
     const link = document.createElement('a');
     link.href = '#';
-    link.textContent = `${c.name} (${c.status})`;
+    link.textContent = c.name;
     link.addEventListener('click', (e) => {
       e.preventDefault();
       showCampaign(c.id);
     });
     const stats = document.createElement('span');
-    stats.textContent = `${c.ready}/${c.total} ready${c.failed ? `, ${c.failed} failed` : ''}`;
+    stats.className = 'stats';
+    stats.innerHTML = `${c.ready}/${c.total} ready${c.failed ? `, ${c.failed} failed` : ''} ${pill(c.status)}`;
     li.append(link, stats);
     historyList.appendChild(li);
   }
@@ -116,6 +131,7 @@ async function loadHistory() {
 briefForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   briefError.hidden = true;
+  variantsError.hidden = true;
   submitButton.disabled = true;
 
   try {
@@ -124,7 +140,9 @@ briefForm.addEventListener('submit', async (e) => {
     try {
       variants = JSON.parse(formData.get('variants'));
     } catch {
-      throw new Error('Variants must be valid JSON.');
+      variantsError.textContent = 'Variants must be valid JSON. Pick a preset above to start from a working example.';
+      variantsError.hidden = false;
+      return;
     }
 
     const brief = {
