@@ -1,13 +1,6 @@
-const PRESETS = {
-  resize: [
-    { name: 'square-1080', transformation: [{ width: 1080, height: 1080, focus: 'auto' }] },
-    { name: 'story-1080x1920', transformation: [{ width: 1080, height: 1920, focus: 'auto' }] },
-    { name: 'thumb-320', transformation: [{ width: 320, height: 320, focus: 'auto', quality: 80 }] },
-  ],
-  ai: [
-    { name: 'bg-removed', transformation: [{ aiRemoveBackground: true }] },
-    { name: 'upscaled-2x', transformation: [{ aiUpscale: true }] },
-  ],
+const PRESET_FILES = {
+  resize: '/samples/variants.json',
+  ai: '/samples/variants-ai.json',
 };
 
 const briefForm = document.getElementById('brief-form');
@@ -24,8 +17,12 @@ const variantTableBody = document.querySelector('#variant-table tbody');
 const rendersGrid = document.getElementById('renders-grid');
 const historyList = document.getElementById('history-list');
 
-function applyPreset(key) {
-  briefForm.variants.value = JSON.stringify(PRESETS[key], null, 2);
+const samplesButton = document.getElementById('samples-button');
+const samplesStatus = document.getElementById('samples-status');
+
+async function applyPreset(key) {
+  const res = await fetch(PRESET_FILES[key]);
+  briefForm.variants.value = JSON.stringify(await res.json(), null, 2);
   variantsError.hidden = true;
 }
 
@@ -35,6 +32,23 @@ document.querySelectorAll('[data-preset]').forEach((button) => {
 
 // Start with a working example so the first submit never hits an empty field.
 applyPreset('resize');
+
+samplesButton.addEventListener('click', async () => {
+  samplesButton.disabled = true;
+  samplesStatus.textContent = 'Uploading...';
+  try {
+    const res = await fetch('/samples/upload', { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message ?? body.error ?? `Request failed with ${res.status}`);
+    briefForm.folder.value = body.folder;
+    const total = body.uploaded.length + body.skipped.length;
+    samplesStatus.textContent = `${total} sample images ready in ${body.folder}.`;
+  } catch (err) {
+    samplesStatus.textContent = `Upload failed: ${err.message}`;
+  } finally {
+    samplesButton.disabled = false;
+  }
+});
 
 function pill(status) {
   return `<span class="pill pill-${escapeHtml(status)}">${escapeHtml(status)}</span>`;

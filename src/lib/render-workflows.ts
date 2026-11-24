@@ -22,8 +22,7 @@ export async function startCampaignRun(campaignId: string, brief: unknown): Prom
   if (!env.renderApiKey || !env.workflowSlug) {
     throw new Error(
       'RENDER_API_KEY and WORKFLOW_SLUG must both be set to trigger campaign runs. ' +
-        'See README, "Deploying the workflow service" -- the workflow service must be deployed first, ' +
-        'then its slug and an API key wired into this service.',
+        'On Render, render.yaml sets WORKFLOW_SLUG and prompts for RENDER_API_KEY -- see README, "Next steps".',
     );
   }
   const run = await getRender().workflows.startTask(`${env.workflowSlug}/runCampaign`, [campaignId, brief]);

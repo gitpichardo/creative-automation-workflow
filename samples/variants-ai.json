@@ -1,0 +1,4 @@
+[
+  { "name": "bg-removed", "transformation": [{ "aiRemoveBackground": true }] },
+  { "name": "upscaled-2x", "transformation": [{ "aiUpscale": true }] }
+]

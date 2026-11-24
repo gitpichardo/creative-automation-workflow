@@ -203,6 +203,14 @@ textarea {
   flex-wrap: wrap;
 }
 
+.sample-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
 button {
   font: inherit;
   cursor: pointer;

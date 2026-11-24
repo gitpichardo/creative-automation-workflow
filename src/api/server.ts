@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { campaignsRouter } from './routes/campaigns.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { samplesRouter, SAMPLES_DIR } from './routes/samples.js';
 import { env } from '../lib/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,11 +18,14 @@ export function createServer() {
 
   app.use(express.json({ limit: '1mb' }));
   app.use(campaignsRouter);
+  app.use(samplesRouter);
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
   // Minimal static demo UI -- see src/ui/README for what it does.
   app.use(express.static(path.join(__dirname, '..', 'ui')));
+  // The UI's variant presets load samples/variants*.json from here.
+  app.use('/samples', express.static(SAMPLES_DIR));
 
   // Express 5 forwards rejected promises from async route handlers here
   // automatically, so this alone is enough to turn e.g. a Key Value

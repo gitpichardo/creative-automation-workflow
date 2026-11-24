@@ -4,8 +4,6 @@ ImageKit transformations are not always synchronous. An AI edit or video re-enco
 
 This template deploys an Express API and demo UI, with a Render Workflows service that fans each (asset × variant) pair into its own tracked, retryable task. You add ImageKit credentials; Render handles the web service, Key Value, and workflow runtime. Submit one campaign brief and get a CSV manifest of finished CDN URLs (or clear errors) without babysitting a long-running script.
 
-> [Blueprints do not yet manage Workflow services](https://render.com/docs/workflows), so you create the env group, Key Value instance, and Workflow service first, then deploy the Blueprint (which creates the `api`). Follow [Next steps](#next-steps) in order, then use the button.
-
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/gitpichardo/creative-automation-workflow)
 
 ## Architecture
@@ -32,8 +30,9 @@ A running campaign runner: pick a DAM folder, list output variants (crops, AI ed
 - **Async protocol handled**: Polls ImageKit until ready (`is-intermediate-response`, video `302`, `ik-error`), with optional webhook shortcut for video.
 - **Concurrency hard-capped at 5**: Matches the n8n batch template - not env-tunable, so a large brief cannot flood ImageKit.
 - **Safety size caps**: Default 200 assets per campaign, at most 20 variants per brief.
-- **Shared env group**: ImageKit keys and `REDIS_URL` live in one group linked to both services.
+- **One-click deploy**: The Blueprint creates the Key Value instance, Workflow service, and `api`, and wires `REDIS_URL` and `WORKFLOW_SLUG` between them. You enter the ImageKit keys once.
 - **Demo UI**: Submit a brief, watch `queued` → `rendering` → `ready`/`error`/`timeout`, download the grid and CSV.
+- **Bundled sample assets**: Three test images and ready-made variants files in [`samples/`](samples), so the first run needs no setup in ImageKit.
 
 ## Use cases
 
@@ -44,15 +43,14 @@ A running campaign runner: pick a DAM folder, list output variants (crops, AI ed
 
 ## What's included
 
-| Resource | Type | Created by | Purpose |
-|---|---|---|---|
-| `creative-automation-shared` | Environment group | You (Dashboard) | ImageKit keys, `REDIS_URL`, safety caps; linked to api and workflow |
-| `creative-automation-trigger` | Environment group | Blueprint | `RENDER_API_KEY` for the api |
-| `creative-automation-state` | Key Value | You (Dashboard) | Campaign progress, webhook correlation, idempotency |
-| `creative-automation-workflow` | Workflow | You (Dashboard) | `runCampaign` / `renderVariant` fan-out |
-| `creative-automation-api` | Web Service | Blueprint | Demo UI, campaign API, ImageKit webhook receiver |
+| Resource | Type | Purpose |
+|---|---|---|
+| `creative-automation-state` | Key Value | Campaign progress, webhook correlation, idempotency |
+| `creative-automation-workflow` | Workflow | `runCampaign` / `renderVariant` fan-out |
+| `creative-automation-api` | Web Service | Demo UI, campaign API, ImageKit webhook receiver, sample upload |
+| `creative-automation-shared` | Environment group | Safety caps shared by the api and workflow |
 
-The Blueprint nests the `api` under a `creative-automation` project (`production` environment).
+The Blueprint creates all of them under a `creative-automation` project (`production` environment).
 
 ## Prerequisites
 
@@ -66,65 +64,43 @@ Free ImageKit accounts work for basic transforms. AI transforms consume extensio
 
 ## Next steps
 
-Do these in order. The workflow needs the group and Key Value before it exists, and the Blueprint needs the workflow slug.
+1. **Deploy the Blueprint** - Click Deploy to Render above. When prompted, enter:
 
-1. **Create the Key Value instance** - Dashboard → **New → Key Value**, name it `creative-automation-state`, same region as your other services. Copy its **internal** connection string.
-2. **Create the env group** - Dashboard → **Environment Groups → New**, name it exactly `creative-automation-shared`, with:
+   | Key | Service | Value |
+   |---|---|---|
+   | `IMAGEKIT_PRIVATE_KEY` | workflow | your private key |
+   | `IMAGEKIT_PUBLIC_KEY` | workflow | your public key |
+   | `IMAGEKIT_URL_ENDPOINT` | workflow | `https://ik.imagekit.io/<your_id>` |
+   | `IMAGEKIT_WEBHOOK_SECRET` | workflow | optional; leave empty to skip the video webhook shortcut |
+   | `RENDER_API_KEY` | api | a [Render API key](https://render.com/docs/api#1-create-an-api-key), so the api can start workflow runs |
 
-   | Key | Value |
-   |---|---|
-   | `IMAGEKIT_PRIVATE_KEY` | your private key |
-   | `IMAGEKIT_PUBLIC_KEY` | your public key |
-   | `IMAGEKIT_URL_ENDPOINT` | `https://ik.imagekit.io/<your_id>` |
-   | `REDIS_URL` | internal connection string from step 1 |
-   | `MAX_ASSETS_PER_CAMPAIGN` | `200` |
-   | `AWAIT_TRANSFORMATION_TIMEOUT_MS` | `120000` |
-
-3. **Create the Workflow service** - Dashboard → **New → Workflow**. Same repo. Language: Node. Build: `npm ci && npm run build`. Start: `npm run start:workflow`. Under **Environment**, link `creative-automation-shared`. Note the workflow **slug**.
-4. **Deploy the Blueprint** - Click Deploy to Render above. When prompted, enter `WORKFLOW_SLUG` (from step 3) and `RENDER_API_KEY`. Optionally set `IMAGEKIT_WEBHOOK_SECRET`; register `<api-url>/webhooks/imagekit` in ImageKit for the video shortcut.
-5. **Add test assets and run a campaign** - See [Try it](#try-it) below.
+   The api copies the ImageKit values from the workflow, and `REDIS_URL` and `WORKFLOW_SLUG` are filled in for you. If you set a webhook secret, register `<api-url>/webhooks/imagekit` in ImageKit.
+2. **Run a campaign** - See [Try it](#try-it) below.
 
 ## Try it
 
-Prepare a few source assets, then submit a brief from the demo UI.
+Everything the first run needs is in [`samples/`](samples):
 
-1. In the [ImageKit media library](https://imagekit.io/dashboard/media-library), create a folder `/campaigns/demo` and upload 2 or 3 JPG/PNG images (any size).
-2. Open the `api` service URL. The form is prefilled; confirm these values:
+| File | What it is |
+|---|---|
+| `samples/images/*.jpg` | 3 product photos (1024×1024) |
+| `samples/variants.json` | Basic resizes: square, story, thumbnail |
+| `samples/variants-ai.json` | AI background removal + upscale |
+| `samples/brief.json` | A full campaign brief for the command line |
 
-   | Field | Value |
-   |---|---|
-   | Campaign name | `Demo campaign` |
-   | Source folder | `/campaigns/demo` |
-   | Asset filter | leave empty (or `tags IN ["approved"]` after tagging one image `approved`) |
-   | Variants | the **Basic resizes** preset |
+1. Open the `api` service URL and click **Upload sample images**. This copies `samples/images` into `/campaigns/demo` in your ImageKit media library (files already there are skipped).
+2. The rest of the form is prefilled: source folder `/campaigns/demo`, and variants loaded from `samples/variants.json`. Click **Start campaign**.
+3. You should see 9 rows (3 images × 3 variants) move from `queued` through `rendering` to `ready`, a grid of finished renders, and a **Download manifest.csv** link.
+4. Optional AI run (consumes extension units): click **AI background + upscale** to load `samples/variants-ai.json`. These two slower variants exercise the `is-intermediate-response` polling path.
+5. Optional failure check: change one variant's transformation to something invalid. That row ends as `error` with an ImageKit message while the others still finish.
 
-3. Variants JSON (same as the Basic resizes preset):
-
-   ```json
-   [
-     { "name": "square-1080", "transformation": [{ "width": 1080, "height": 1080, "focus": "auto" }] },
-     { "name": "story-1080x1920", "transformation": [{ "width": 1080, "height": 1920, "focus": "auto" }] },
-     { "name": "thumb-320", "transformation": [{ "width": 320, "height": 320, "focus": "auto", "quality": 80 }] }
-   ]
-   ```
-
-4. Click **Start campaign**. With 3 images you should see 9 rows (3 assets × 3 variants) move from `queued` through `rendering` to `ready`, a grid of finished renders, and a **Download manifest.csv** link.
-5. Optional AI run (consumes extension units): click **AI background + upscale** for two slower variants that exercise the `is-intermediate-response` polling path.
-6. Optional failure check: change one variant's transformation to something invalid. That row ends as `error` with an ImageKit message while the others still finish.
-
-Same thing from the command line:
+Same thing from the command line, from a clone of this repo:
 
 ```sh
+curl -X POST https://<your-api>.onrender.com/samples/upload
 curl -X POST https://<your-api>.onrender.com/campaigns \
   -H "Content-Type: application/json" \
-  -d '{
-        "name": "Demo campaign",
-        "folder": "/campaigns/demo",
-        "variants": [
-          { "name": "square-1080", "transformation": [{ "width": 1080, "height": 1080, "focus": "auto" }] },
-          { "name": "thumb-320", "transformation": [{ "width": 320, "height": 320, "quality": 80 }] }
-        ]
-      }'
+  --data @samples/brief.json
 # 202 { "id": "...", "statusUrl": "..." }  then:  curl https://<your-api>.onrender.com/campaigns/<id>
 ```
 

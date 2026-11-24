@@ -1,0 +1,5 @@
+[
+  { "name": "square-1080", "transformation": [{ "width": 1080, "height": 1080, "focus": "auto" }] },
+  { "name": "story-1080x1920", "transformation": [{ "width": 1080, "height": 1920, "focus": "auto" }] },
+  { "name": "thumb-320", "transformation": [{ "width": 320, "height": 320, "focus": "auto", "quality": 80 }] }
+]

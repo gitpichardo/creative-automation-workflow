@@ -1,29 +1,58 @@
 # Render Blueprint for imagekit-render-creative-automation.
 #
-# Deploy order (see README, "Next steps"):
-#   1. Create the `creative-automation-shared` env group in the Dashboard
-#   2. Create the Key Value instance; put its internal URL in the group as REDIS_URL
-#   3. Create the Workflow service (Dashboard) and link the group; note its slug
-#   4. Deploy this Blueprint: it creates the `api` web service only, and asks
-#      for WORKFLOW_SLUG and RENDER_API_KEY at deploy time
-#
-# Workflow services (and the Key Value instance the workflow needs first) are
-# not created here: Render Blueprints do not yet manage Workflows
-# (https://render.com/docs/workflows).
+# One deploy creates everything: the Key Value instance, the Workflow service,
+# and the `api` web service. You're prompted for the ImageKit keys and a
+# Render API key; REDIS_URL and WORKFLOW_SLUG are wired up automatically.
 
-# Only the api needs the Render API key (to start workflow runs), so it lives
-# in its own group, separate from the config shared with the workflow.
+# Non-secret config shared by the api and the workflow. Secrets can't live
+# here: Render ignores `sync: false` inside environment groups
+# (https://render.com/docs/blueprint-spec#environment-groups).
 envVarGroups:
-  - name: creative-automation-trigger
+  - name: creative-automation-shared
     envVars:
-      - key: RENDER_API_KEY
-        sync: false
+      - key: MAX_ASSETS_PER_CAMPAIGN
+        value: 200
+      - key: AWAIT_TRANSFORMATION_TIMEOUT_MS
+        value: 120000
 
 projects:
   - name: creative-automation
     environments:
       - name: production
         services:
+          - type: keyvalue
+            name: creative-automation-state
+            plan: free
+            region: oregon
+            # Internal connections only; both services reach it over the private network.
+            ipAllowList: []
+            # Campaign progress and webhook correlation must not be evicted mid-run.
+            maxmemoryPolicy: noeviction
+
+          - type: workflow
+            name: creative-automation-workflow
+            runtime: node
+            region: oregon
+            buildCommand: npm ci && npm run build
+            startCommand: npm run start:workflow
+            envVars:
+              - fromGroup: creative-automation-shared
+              - key: IMAGEKIT_PRIVATE_KEY
+                sync: false
+              - key: IMAGEKIT_PUBLIC_KEY
+                sync: false
+              - key: IMAGEKIT_URL_ENDPOINT
+                sync: false
+              # Optional: signing secret from the ImageKit webhook dashboard.
+              # Enables the webhook shortcut for video variants.
+              - key: IMAGEKIT_WEBHOOK_SECRET
+                sync: false
+              - key: REDIS_URL
+                fromService:
+                  type: keyvalue
+                  name: creative-automation-state
+                  property: connectionString
+
           - type: web
             name: creative-automation-api
             runtime: node
@@ -34,20 +63,46 @@ projects:
             autoDeployTrigger: off
             buildCommand: npm ci && npm run build
             startCommand: npm run start:api
+            healthCheckPath: /health
             envVars:
-              # Created by you before deploying: IMAGEKIT_PRIVATE_KEY,
-              # IMAGEKIT_PUBLIC_KEY, IMAGEKIT_URL_ENDPOINT, REDIS_URL,
-              # MAX_ASSETS_PER_CAMPAIGN, AWAIT_TRANSFORMATION_TIMEOUT_MS.
               - fromGroup: creative-automation-shared
-              - fromGroup: creative-automation-trigger
-              # Slug of the Workflow service you created in step 3.
-              - key: WORKFLOW_SLUG
-                sync: false
-              # Optional: signing secret from the ImageKit webhook dashboard.
+              # The api reuses the workflow's ImageKit keys (to verify webhooks
+              # and upload the bundled sample images), so you enter them once.
+              - key: IMAGEKIT_PRIVATE_KEY
+                fromService:
+                  type: workflow
+                  name: creative-automation-workflow
+                  envVarKey: IMAGEKIT_PRIVATE_KEY
+              - key: IMAGEKIT_PUBLIC_KEY
+                fromService:
+                  type: workflow
+                  name: creative-automation-workflow
+                  envVarKey: IMAGEKIT_PUBLIC_KEY
+              - key: IMAGEKIT_URL_ENDPOINT
+                fromService:
+                  type: workflow
+                  name: creative-automation-workflow
+                  envVarKey: IMAGEKIT_URL_ENDPOINT
               - key: IMAGEKIT_WEBHOOK_SECRET
+                fromService:
+                  type: workflow
+                  name: creative-automation-workflow
+                  envVarKey: IMAGEKIT_WEBHOOK_SECRET
+              # Lets the api start workflow runs: https://render.com/docs/api#1-create-an-api-key
+              - key: RENDER_API_KEY
                 sync: false
+              - key: WORKFLOW_SLUG
+                fromService:
+                  type: workflow
+                  name: creative-automation-workflow
+                  property: slug
+              - key: REDIS_URL
+                fromService:
+                  type: keyvalue
+                  name: creative-automation-state
+                  property: connectionString
               # Render sets RENDER_EXTERNAL_URL automatically; this duplicates it
-              # under the name src/api/env.ts reads.
+              # under the name src/lib/env.ts reads.
               - key: PUBLIC_BASE_URL
                 fromService:
                   type: web
